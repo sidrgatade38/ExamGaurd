@@ -23,14 +23,7 @@ const INSECURE_JWT_PLACEHOLDERS = [
   'default_secret',
 ];
 
-/**
- * Resolves a key path relative to the Backend root if not absolute.
- */
-function resolveKeyPath(filePath) {
-  if (!filePath) return null;
-  if (path.isAbsolute(filePath)) return filePath;
-  return path.resolve(__dirname, '../../', filePath);
-}
+const { resolveKeyPath, syncEnvironmentKeys } = require('./keyProvisioner');
 
 /**
  * Validates system environment configuration.
@@ -152,6 +145,9 @@ function validateEnvironment(cfg) {
  * In production, exits process with code 1 if validation fails.
  */
 function enforceStartupValidation(cfg) {
+  // Sync keys from environment variables or cloud secret mounts if not present on disk
+  syncEnvironmentKeys(cfg);
+
   const result = validateEnvironment(cfg);
   const env = (cfg && cfg.nodeEnv) || process.env.NODE_ENV || 'development';
 

@@ -18,14 +18,7 @@ const config = require('../config');
 let cachedPublicKey = null;
 let cachedPrivateKey = null;
 
-/**
- * Resolves an absolute filesystem path given a potentially relative configuration path.
- */
-function resolveKeyPath(configPath) {
-  if (!configPath) return null;
-  if (path.isAbsolute(configPath)) return configPath;
-  return path.resolve(__dirname, '../../', configPath);
-}
+const { resolveKeyPath } = require('../config/keyProvisioner');
 
 /**
  * Loads the RSA public key for digital signature verification.

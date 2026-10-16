@@ -24,6 +24,9 @@ dotenv.config({ path: path.join(__dirname, '../.env') });
 const config = require('../src/config');
 const { app } = require('../src/server');
 const { validateEnvironment, enforceStartupValidation, INSECURE_JWT_PLACEHOLDERS } = require('../src/config/envValidator');
+const { resolveKeyPath, syncEnvironmentKeys, normalizePemContent } = require('../src/config/keyProvisioner');
+const keyManagementService = require('../src/services/keyManagementService');
+const signatureService = require('../src/services/signatureService');
 const { createCorsMiddleware, parseAllowedOrigins } = require('../src/middleware/corsConfig');
 const { createLoginRateLimiter } = require('../src/middleware/rateLimiter');
 const { getSupabaseClient } = require('../src/config/supabase');
@@ -509,6 +512,56 @@ async function runProductionHardeningSuite() {
 
     const frontendEnvExample = path.resolve(__dirname, '../../Frontend/.env.example');
     assert(fs.existsSync(frontendEnvExample), 'Frontend/.env.example exists');
+
+    // -------------------------------------------------------------
+    // Section 8: Cloud Key Provisioner, Resolution & Loading Invariants
+    // -------------------------------------------------------------
+    console.log('\n--- Section 8: Cloud Key Provisioner, Resolution & Loading Invariants ---');
+
+    // 1. normalizePemContent decodes base64-encoded PEM strings
+    const samplePem = '-----BEGIN PUBLIC KEY-----\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0\n-----END PUBLIC KEY-----';
+    const sampleBase64 = Buffer.from(samplePem).toString('base64');
+    const decodedPem = normalizePemContent(sampleBase64, true);
+    assert(decodedPem.includes('BEGIN PUBLIC KEY'), 'normalizePemContent decodes base64-encoded PEM');
+
+    // 2. normalizePemContent unescapes literal \n strings from dashboard forms
+    const escapedPem = '-----BEGIN PUBLIC KEY-----\\nMIIBIjANBgkqhkiG9w0BAQEFAAOCAQ8AMIIBCgKCAQEA0\\n-----END PUBLIC KEY-----';
+    const unescapedPem = normalizePemContent(escapedPem, false);
+    assert(unescapedPem.includes('\n'), 'normalizePemContent handles escaped newline strings');
+
+    // 3. resolveKeyPath handles absolute paths
+    const absPath = path.resolve(__dirname, '../keys/question-paper-signing-public.pem');
+    assert(resolveKeyPath(absPath) === absPath, 'resolveKeyPath preserves absolute paths');
+
+    // 4. resolveKeyPath handles relative paths from Backend root
+    const relResolved = resolveKeyPath('keys/question-paper-signing-public.pem');
+    assert(fs.existsSync(relResolved), 'resolveKeyPath resolves relative path to Backend/keys');
+
+    // 5. syncEnvironmentKeys detects existing keys cleanly without corruption
+    const syncRes = syncEnvironmentKeys();
+    assert(typeof syncRes.existingCount === 'number' && syncRes.existingCount >= 4, 'syncEnvironmentKeys detects existing 4 cryptographic keys on disk');
+
+    // 6. Existing keys are loaded by services without error
+    const wrappingPubKey = keyManagementService.getWrappingPublicKey();
+    assert(wrappingPubKey.includes('BEGIN PUBLIC KEY'), 'keyManagementService successfully loads wrapping public key');
+    const wrappingPrivKey = keyManagementService.getWrappingPrivateKey();
+    assert(wrappingPrivKey.includes('BEGIN PRIVATE KEY') || wrappingPrivKey.includes('BEGIN RSA PRIVATE KEY'), 'keyManagementService successfully loads wrapping private key');
+
+    const signingPubKey = signatureService.getSigningPublicKey();
+    assert(signingPubKey.includes('BEGIN PUBLIC KEY'), 'signatureService successfully loads signing public key');
+    const signingPrivKey = signatureService.getSigningPrivateKey();
+    assert(signingPrivKey.includes('BEGIN PRIVATE KEY') || signingPrivKey.includes('BEGIN RSA PRIVATE KEY'), 'signatureService successfully loads signing private key');
+
+    // 7. exportKeysForRender script exists and generated .render-secrets.env is ignored
+    const exportScriptPath = path.resolve(__dirname, 'exportKeysForRender.js');
+    assert(fs.existsSync(exportScriptPath), 'exportKeysForRender.js exists in scripts/');
+    const renderSecretsEnv = path.resolve(__dirname, '../.render-secrets.env');
+    if (fs.existsSync(renderSecretsEnv)) {
+      const renderSecretsContent = fs.readFileSync(renderSecretsEnv, 'utf8');
+      assert(renderSecretsContent.includes('QUESTION_PAPER_KEY_WRAPPING_PUBLIC_KEY_BASE64'), '.render-secrets.env contains exported base64 wrapping public key');
+      assert(renderSecretsContent.includes('ALLOWED_ORIGINS=https://exam-gaurd.vercel.app'), '.render-secrets.env contains production ALLOWED_ORIGINS');
+    }
+
 
   } finally {
     server.close();

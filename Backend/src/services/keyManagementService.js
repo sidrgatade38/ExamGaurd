@@ -24,17 +24,7 @@ const config = require('../config');
 let cachedWrappingPublicKey = null;
 let cachedWrappingPrivateKey = null;
 
-/**
- * Resolves an absolute filesystem path given a potentially relative configuration path.
- *
- * @param {string} configPath
- * @returns {string|null}
- */
-function resolveKeyPath(configPath) {
-  if (!configPath) return null;
-  if (path.isAbsolute(configPath)) return configPath;
-  return path.resolve(__dirname, '../../', configPath);
-}
+const { resolveKeyPath } = require('../config/keyProvisioner');
 
 /**
  * Loads the RSA public key for question paper key wrapping.
