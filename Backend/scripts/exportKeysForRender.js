@@ -88,7 +88,23 @@ function exportKeys() {
     process.exit(1);
   }
 
-  lines.push('\n# Note: Also ensure SUPABASE_URL, SUPABASE_ANON_KEY, and SUPABASE_SERVICE_ROLE_KEY are set in Render.\n');
+  // Pull existing Supabase configuration from local Backend/.env if available
+  const localEnvPath = path.join(BACKEND_ROOT, '.env');
+  if (fs.existsSync(localEnvPath)) {
+    const localEnvContent = fs.readFileSync(localEnvPath, 'utf8');
+    const getVal = (key) => {
+      const match = localEnvContent.match(new RegExp(`^${key}=(.*)$`, 'm'));
+      return match ? match[1].trim() : '';
+    };
+
+    const supabaseUrl = getVal('SUPABASE_URL');
+    const supabaseAnon = getVal('SUPABASE_ANON_KEY');
+    const supabaseService = getVal('SUPABASE_SERVICE_ROLE_KEY');
+
+    if (supabaseUrl) lines.splice(5, 0, `SUPABASE_URL=${supabaseUrl}`);
+    if (supabaseAnon) lines.splice(6, 0, `SUPABASE_ANON_KEY=${supabaseAnon}`);
+    if (supabaseService) lines.splice(7, 0, `SUPABASE_SERVICE_ROLE_KEY=${supabaseService}`);
+  }
 
   fs.writeFileSync(OUTPUT_FILE, lines.join('\n') + '\n', { encoding: 'utf8', mode: 0o600 });
 
